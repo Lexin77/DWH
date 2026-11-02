@@ -58,6 +58,24 @@ class RedisHandler:
     def flush_database(self) -> None:
         self.client.flushdb()
 
+    def delete_keys_matching(
+        self, pattern: str, batch_size: int = 5_000
+    ) -> int:
+        """Delete keys matching a namespace without touching unrelated keys."""
+        deleted = 0
+        batch: list[str] = []
+
+        for key in self.client.scan_iter(match=pattern, count=batch_size):
+            batch.append(key)
+            if len(batch) >= batch_size:
+                deleted += self.client.delete(*batch)
+                batch.clear()
+
+        if batch:
+            deleted += self.client.delete(*batch)
+
+        return deleted
+
     def load_dataframe_as_hashes(
         self,
         df: pd.DataFrame,

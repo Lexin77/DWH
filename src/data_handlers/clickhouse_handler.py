@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -206,8 +207,14 @@ class ClickHouseHandler:
 
             elif pd.api.types.is_object_dtype(result[column]):
                 result[column] = result[column].where(result[column].notna(), None)
-                result[column] = result[column].map(
-                    lambda v: str(v) if isinstance(v, (UUID, int)) else v
-                )
+                non_null = result[column].dropna()
+                if not non_null.empty and isinstance(
+                    non_null.iloc[0], (date, datetime)
+                ):
+                    result[column] = pd.to_datetime(result[column], utc=True)
+                else:
+                    result[column] = result[column].map(
+                        lambda v: str(v) if isinstance(v, (UUID, int)) else v
+                    )
 
         return result
