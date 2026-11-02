@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from datetime import date, datetime
 from typing import Any
+from uuid import UUID
 
 import numpy as np
 import pandas as pd
@@ -181,6 +183,15 @@ class MongoHandler:
 
             elif pd.api.types.is_object_dtype(result[column]):
                 result[column] = result[column].where(result[column].notna(), None)
+                result[column] = result[column].map(
+                    lambda v: str(v)
+                    if isinstance(v, UUID)
+                    else (
+                        datetime(v.year, v.month, v.day)
+                        if isinstance(v, date) and not isinstance(v, datetime)
+                        else v
+                    )
+                )
 
         result = result.replace({np.nan: None})
         return result.to_dict(orient="records")

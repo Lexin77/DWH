@@ -40,7 +40,9 @@ def gen_competitors_products_price_history_dataframe(
         products_df["tmp"] == 0, "price"
     ]
     products_df.loc[products_df["tmp"] == 2, "value"] = products_df.loc[
-        products_df["tmp"] == 0, "price"
+        products_df["tmp"] == 2, "price"
     ]
     products_df.loc[products_df["tmp"] != 1, "price"] = None
-    return products_df[["parse_id", "product_id", "datetime", "price", "cost", "value"]]
+    return products_df[
+        ["parse_id", "product_id", "company_name", "datetime", "price", "cost", "value"]
+    ]

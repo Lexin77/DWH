@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from random import choice
 
 import numpy as np
@@ -71,7 +71,7 @@ def generate_users_dataframe(num_unique_users: int) -> pd.DataFrame:
     unique_users = [uuid.uuid4() for _ in range(num_unique_users)]
     users_birthday = list(
         map(
-            lambda x: datetime.utcfromtimestamp(x).date(),
+            lambda x: datetime.fromtimestamp(x, tz=timezone.utc).date(),
             normal_distribution_sequence(
                 start_birthday_date, end_birthday_date, size=num_unique_users
             ),

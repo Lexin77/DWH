@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from typing import Any
+from uuid import UUID
 
 import clickhouse_connect
 import pandas as pd
@@ -83,18 +84,66 @@ class ClickHouseHandler:
         database = database or self.config.database
         self.execute(f'DROP TABLE IF EXISTS "{database}"."{table_name}"')
 
+    def create_database(
+        self, database: str | None = None, if_not_exists: bool = True
+    ) -> None:
+        database = database or self.config.database
+        if_not_exists_sql = "IF NOT EXISTS " if if_not_exists else ""
+        self.execute(f'CREATE DATABASE {if_not_exists_sql}"{database}"')
+
     def create_table(
         self,
         table_name: str,
         ddl: str,
         database: str | None = None,
         if_not_exists: bool = True,
+        engine: str = "MergeTree()",
+        order_by: str = "tuple()",
     ) -> None:
         database = database or self.config.database
         if_not_exists_sql = "IF NOT EXISTS " if if_not_exists else ""
 
-        query = f'CREATE TABLE {if_not_exists_sql}"{database}"."{table_name}" ({ddl})'
+        if "ENGINE" in ddl.upper():
+            query = f'CREATE TABLE {if_not_exists_sql}"{database}"."{table_name}" {ddl}'
+        else:
+            query = (
+                f'CREATE TABLE {if_not_exists_sql}"{database}"."{table_name}" '
+                f"({ddl}) ENGINE = {engine} ORDER BY {order_by}"
+            )
         self.execute(query)
+
+    def create_table_from_dataframe(
+        self,
+        df: pd.DataFrame,
+        table_name: str,
+        database: str | None = None,
+        order_by: str = "tuple()",
+    ) -> None:
+        prepared = self._prepare_dataframe(df.head(100))
+        cols_ddl: list[str] = []
+        for col in df.columns:
+            series = prepared[col]
+            has_nulls = bool(df[col].isna().any())
+            if pd.api.types.is_bool_dtype(series):
+                ch_type = "Bool"
+            elif pd.api.types.is_integer_dtype(series):
+                ch_type = "Int64"
+            elif pd.api.types.is_float_dtype(series):
+                ch_type = "Float64"
+            elif pd.api.types.is_datetime64_any_dtype(series):
+                ch_type = "DateTime64(6, 'UTC')"
+            else:
+                ch_type = "String"
+            if has_nulls and not ch_type.startswith("Nullable"):
+                ch_type = f"Nullable({ch_type})"
+            cols_ddl.append(f'"{col}" {ch_type}')
+        self.create_table(
+            table_name=table_name,
+            ddl=", ".join(cols_ddl),
+            database=database,
+            if_not_exists=True,
+            order_by=order_by,
+        )
 
     def load_dataframe(
         self,
@@ -157,5 +206,8 @@ class ClickHouseHandler:
 
             elif pd.api.types.is_object_dtype(result[column]):
                 result[column] = result[column].where(result[column].notna(), None)
+                result[column] = result[column].map(
+                    lambda v: str(v) if isinstance(v, (UUID, int)) else v
+                )
 
         return result

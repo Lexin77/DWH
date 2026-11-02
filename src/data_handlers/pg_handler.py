@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from datetime import date, datetime
 from typing import Any
+from uuid import UUID
 
 import numpy as np
 import pandas as pd
@@ -11,6 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.types import (
     BIGINT,
     BOOLEAN,
+    DATE,
     DOUBLE_PRECISION,
     TEXT,
     TIMESTAMP,
@@ -53,6 +56,10 @@ class PostgresHandler:
         inspector = inspect(self.engine)
         return inspector.has_table(table_name, schema=schema)
 
+    def query_df(self, query: str) -> pd.DataFrame:
+        with self.engine.connect() as connection:
+            return pd.read_sql(text(query), connection)
+
     def truncate_table(self, table_name: str, schema: str = "public") -> None:
         qualified_name = f'"{schema}"."{table_name}"'
 
@@ -78,6 +85,7 @@ class PostgresHandler:
 
         prepared_df = self._prepare_dataframe(df)
         inferred_dtype = dtype or self._infer_sqlalchemy_types(prepared_df)
+        safe_chunksize = min(chunksize, max(1, 60_000 // max(1, len(prepared_df.columns))))
 
         rows_written = prepared_df.to_sql(
             name=table_name,
@@ -85,7 +93,7 @@ class PostgresHandler:
             schema=schema,
             if_exists=mode,
             index=index,
-            chunksize=chunksize,
+            chunksize=safe_chunksize,
             dtype=inferred_dtype,
             method="multi",
         )
@@ -137,6 +145,13 @@ class PostgresHandler:
 
             elif pd.api.types.is_object_dtype(result[column]):
                 result[column] = result[column].where(result[column].notna(), None)
+                non_null = result[column].dropna()
+                if not non_null.empty:
+                    sample = non_null.iloc[0]
+                    if isinstance(sample, (UUID, int)):
+                        result[column] = result[column].map(
+                            lambda v: str(v) if v is not None else None
+                        )
 
         return result.replace({np.nan: None})
 
@@ -158,6 +173,10 @@ class PostgresHandler:
             elif pd.api.types.is_float_dtype(series):
                 inferred[column] = DOUBLE_PRECISION
             else:
-                inferred[column] = TEXT
+                non_null = series.dropna()
+                if not non_null.empty and isinstance(non_null.iloc[0], date) and not isinstance(non_null.iloc[0], datetime):
+                    inferred[column] = DATE
+                else:
+                    inferred[column] = TEXT
 
         return inferred

@@ -130,9 +130,11 @@ def generate_interaction_history_dataframe(
 
     interaction_history = pd.concat(frames, ignore_index=True)
 
-    interaction_history = interaction_history.iloc[:size].copy()
+    interaction_history = interaction_history.sort_values("datetime").iloc[:size].copy()
 
-    interaction_history = interaction_history.reset_index(names=["interaction_id"])
+    interaction_history = interaction_history.reset_index(drop=True).reset_index(
+        names=["interaction_id"]
+    )
 
     return interaction_history[
         [
@@ -150,48 +152,56 @@ def generate_orders_history_dataframe(
     interactions_df: pd.DataFrame, shops_df: pd.DataFrame
 ) -> pd.DataFrame:
     rng = np.random.default_rng()
+    interactions_df = interactions_df.copy()
     interactions_df["shop_id"] = rng.choice(
         shops_df["shop_id"].values, size=len(interactions_df)
     )
 
     purchased_orders_df = interactions_df[
         interactions_df["interaction_type"] == "purchased"
-    ]
-    paid_orders_df = interactions_df[interactions_df["interaction_type"] == "paid"]
+    ].copy()
+    paid_orders_df = interactions_df[
+        interactions_df["interaction_type"] == "paid"
+    ].copy()
+    if not purchased_orders_df.empty and not paid_orders_df.empty:
+        shop_map = purchased_orders_df.set_index("order_id")["shop_id"]
+        paid_orders_df["shop_id"] = (
+            paid_orders_df["order_id"].map(shop_map).fillna(paid_orders_df["shop_id"])
+        )
     canceled_orders_df = purchased_orders_df[
         ~purchased_orders_df.order_id.isin(paid_orders_df.order_id.unique())
-    ]
+    ].copy()
 
-    purchased_orders_df = purchased_orders_df[
-        ["user_id", "product_id", "datetime", "order_id"]
-    ]
+    base_cols = ["user_id", "product_id", "datetime", "order_id", "shop_id"]
+    purchased_orders_df = purchased_orders_df[base_cols].copy()
     purchased_orders_df["stage"] = "created"
-    paid_orders_df = paid_orders_df[["user_id", "product_id", "datetime", "order_id"]]
+    paid_orders_df = paid_orders_df[base_cols].copy()
     paid_orders_df["stage"] = "accepted"
     paid_orders_df["datetime"] = add_random_timedelta(
-        paid_orders_df["datetime"],
+        paid_orders_df["datetime"].to_numpy(),
         max_minutes=59,
         max_seconds=59,
     )
-    canceled_orders_df = canceled_orders_df[
-        ["user_id", "product_id", "datetime", "order_id"]
-    ]
-    canceled_orders_df["datetime"] += timedelta(hours=1)
+    canceled_orders_df = canceled_orders_df[base_cols].copy()
+    canceled_orders_df["datetime"] = canceled_orders_df["datetime"] + timedelta(hours=1)
     canceled_orders_df["stage"] = "canceled"
     orders_history_df = [purchased_orders_df, paid_orders_df, canceled_orders_df]
 
     cur_df = paid_orders_df.copy()
     for gen_arr, probs in zip(ORDER_STATES, ORDER_STATES_PROB):
+        if cur_df.empty:
+            break
+        cur_df = cur_df.copy()
         cur_df["stage"] = rng.choice(gen_arr, size=len(cur_df), p=probs)
         cur_df["datetime"] = add_random_timedelta(
-            cur_df["datetime"],
+            cur_df["datetime"].to_numpy(),
             max_days=0,
             max_hours=23,
             max_minutes=59,
             max_seconds=59,
         )
-        orders_history_df.append(cur_df)
-        cur_df = cur_df[~cur_df.stage.isin(DEAD_END_STAGES)]
+        orders_history_df.append(cur_df.copy())
+        cur_df = cur_df[~cur_df.stage.isin(DEAD_END_STAGES)].copy()
 
     orders_history_df = pd.concat(orders_history_df, ignore_index=True)
     orders_history_df.loc[
@@ -205,7 +215,9 @@ def generate_orders_history_dataframe(
         ),
         "stage",
     ] = "delivered"
-    return orders_history_df
+    return orders_history_df[
+        ["user_id", "product_id", "datetime", "order_id", "stage", "shop_id"]
+    ]
 
 
 def gen_products_price_history_dataframe(products_df: pd.DataFrame) -> pd.DataFrame:
@@ -259,6 +271,7 @@ def gen_delivery_price_history_dataframe(shops_df: pd.DataFrame) -> pd.DataFrame
     shops_df = shops_df[["object_id", "object_type", "effective_from"]]
 
     shops_df = pd.concat([city_df, shops_df], ignore_index=True)
+    shops_df["object_id"] = shops_df["object_id"].astype(str)
     shops_df["price"] = normal_distribution_sequence(
         MIN_PRICE, MAX_PRICE, len(shops_df)
     )
