@@ -12,3 +12,12 @@ wheels/
 *.ruff_cache
 
 .env
+.vscode/
+
+# Local database volumes
+/data/postgres_main_data/
+/data/postgres_ml_data/
+/data/clickhouse_data/
+/data/clickhouse_logs/
+/data/mongodb_data/
+/data/redis_data/
