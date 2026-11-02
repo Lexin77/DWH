@@ -1,0 +1,79 @@
+services:
+  postgres_main:
+    image: postgres:18
+    container_name: postgres_main
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_MAIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_MAIN_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres_main_data:/var/lib/postgresql
+    networks:
+      - data_stack
+
+  postgres_ml:
+    image: postgres:18
+    container_name: postgres_ml
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ML_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ML_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./data/postgres_ml_data:/var/lib/postgresql
+    networks:
+      - data_stack
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./data/clickhouse_data:/var/lib/clickhouse
+      - ./data/clickhouse_logs:/var/log/clickhouse-server
+    networks:
+      - data_stack
+
+  mongodb:
+    image: mongo:8
+    container_name: mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data/mongodb_data:/data/db
+    networks:
+      - data_stack
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis_data:/data
+    networks:
+      - data_stack
+
+networks:
+  data_stack:
+    driver: bridge
