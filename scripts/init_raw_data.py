@@ -157,16 +157,6 @@ def init_databases_connections():
     }
 
 
-def load_tables(
-    handler: PostgresHandler | ClickHouseHandler,
-    table_names: tuple[str, ...],
-    dataframes: list[pd.DataFrame],
-) -> None:
-    """Load several DataFrames into tables that share the same handler."""
-    for table_name, dataframe in zip(table_names, dataframes, strict=True):
-        handler.load_dataframe(dataframe, table_name, mode="replace")
-
-
 def load_data_to_databases():
     databases_dfs = init_databases_dataframes()
     connections = init_databases_connections()
@@ -178,8 +168,15 @@ def load_data_to_databases():
         connections["mongodb"] as mongodb,
         connections["redis"] as redis,
     ):
-        load_tables(pg_main, TABLE_NAMES["pg_main"], databases_dfs["pg_main"])
-        load_tables(pg_ml, TABLE_NAMES["pg_ml"], databases_dfs["pg_ml"])
+        for table_name, dataframe in zip(
+            TABLE_NAMES["pg_main"], databases_dfs["pg_main"], strict=True
+        ):
+            pg_main.load_dataframe(dataframe, table_name, mode="replace")
+
+        for table_name, dataframe in zip(
+            TABLE_NAMES["pg_ml"], databases_dfs["pg_ml"], strict=True
+        ):
+            pg_ml.load_dataframe(dataframe, table_name, mode="replace")
 
         clickhouse.create_database(clickhouse.config.database)
         for table_name, dataframe in zip(
