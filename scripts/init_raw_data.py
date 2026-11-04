@@ -1,5 +1,4 @@
 import os
-from contextlib import ExitStack
 
 import pandas as pd
 
@@ -38,6 +37,22 @@ from src.data_handlers.redis_handler import RedisHandler
 UNIQUE_USERS_NUM = int(os.getenv("UNIQUE_USERS_NUM", "1000000"))
 UNIQUE_SHOPS_NUM = int(os.getenv("UNIQUE_SHOPS_NUM", "30000"))
 NUM_UNIQUE_INTERACTIONS = int(os.getenv("NUM_UNIQUE_INTERACTIONS", "100000000"))
+
+TABLE_NAMES = {
+    "pg_main": ("products", "shops", "users"),
+    "pg_ml": (
+        "shops_daily_completed_orders_predict",
+        "shops_daily_all_orders_predict",
+        "daily_revenue_predict",
+    ),
+    "clickhouse": (
+        "interactions",
+        "orders_history",
+        "products_price_history",
+        "delivery_price_history",
+    ),
+}
+
 
 def init_databases_dataframes() -> dict[str, list[pd.DataFrame]]:
     # PG prod
@@ -90,105 +105,96 @@ def init_databases_dataframes() -> dict[str, list[pd.DataFrame]]:
     }
 
 def init_databases_connections():
-    """Build source handlers from environment variables."""
+    """Create database handlers; they connect when entered in a with block."""
     return {
-        "pg_main": PostgresConfig(
-            host=os.getenv("POSTGRES_MAIN_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_MAIN_PORT", "5432")),
-            dbname=os.getenv(
-                "POSTGRES_MAIN_DB", os.getenv("POSTGRES_MAIN_USER", "postgres")
+        "pg_main": PostgresHandler(
+            PostgresConfig(
+                host=os.getenv("POSTGRES_MAIN_HOST", "localhost"),
+                port=int(os.getenv("POSTGRES_MAIN_PORT", "5432")),
+                dbname=os.getenv(
+                    "POSTGRES_MAIN_DB", os.getenv("POSTGRES_MAIN_USER", "postgres")
+                ),
+                user=os.getenv("POSTGRES_MAIN_USER", "postgres"),
+                password=os.getenv("POSTGRES_MAIN_PASSWORD", "practice"),
             ),
-            user=os.getenv("POSTGRES_MAIN_USER", "postgres"),
-            password=os.getenv("POSTGRES_MAIN_PASSWORD", "practice"),
         ),
-        "pg_ml": PostgresConfig(
-            host=os.getenv("POSTGRES_ML_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_ML_PORT", "5433")),
-            dbname=os.getenv(
-                "POSTGRES_ML_DB", os.getenv("POSTGRES_ML_USER", "postgres")
+        "pg_ml": PostgresHandler(
+            PostgresConfig(
+                host=os.getenv("POSTGRES_ML_HOST", "localhost"),
+                port=int(os.getenv("POSTGRES_ML_PORT", "5433")),
+                dbname=os.getenv(
+                    "POSTGRES_ML_DB", os.getenv("POSTGRES_ML_USER", "postgres")
+                ),
+                user=os.getenv("POSTGRES_ML_USER", "postgres"),
+                password=os.getenv("POSTGRES_ML_PASSWORD", "practice"),
             ),
-            user=os.getenv("POSTGRES_ML_USER", "postgres"),
-            password=os.getenv("POSTGRES_ML_PASSWORD", "practice"),
         ),
-        "clickhouse": ClickhouseConfig(
-            host=os.getenv("CLICKHOUSE_HOST", "localhost"),
-            port=int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123")),
-            username=os.getenv("CLICKHOUSE_USER", "default"),
-            password=os.getenv("CLICKHOUSE_PASSWORD", "practice"),
-            database=os.getenv("CLICKHOUSE_DATABASE", "default"),
+        "clickhouse": ClickHouseHandler(
+            ClickhouseConfig(
+                host=os.getenv("CLICKHOUSE_HOST", "localhost"),
+                port=int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123")),
+                username=os.getenv("CLICKHOUSE_USER", "default"),
+                password=os.getenv("CLICKHOUSE_PASSWORD", "practice"),
+                database=os.getenv("CLICKHOUSE_DATABASE", "default"),
+            )
         ),
-        "mongodb": MongoConfig(
-            host=os.getenv("MONGO_HOST", "localhost"),
-            port=int(os.getenv("MONGO_PORT", "27017")),
-            username=os.getenv("MONGO_USER", "root"),
-            password=os.getenv("MONGO_PASSWORD", "practice"),
-            database=os.getenv("MONGO_DATABASE", "shop"),
+        "mongodb": MongoHandler(
+            MongoConfig(
+                host=os.getenv("MONGO_HOST", "localhost"),
+                port=int(os.getenv("MONGO_PORT", "27017")),
+                username=os.getenv("MONGO_USER", "root"),
+                password=os.getenv("MONGO_PASSWORD", "practice"),
+                database=os.getenv("MONGO_DATABASE", "shop"),
+            )
         ),
-        "redis": RedisConfig(
-            host=os.getenv("REDIS_HOST", "localhost"),
-            port=int(os.getenv("REDIS_PORT", "6379")),
-            password=os.getenv("REDIS_PASSWORD", "practice"),
+        "redis": RedisHandler(
+            RedisConfig(
+                host=os.getenv("REDIS_HOST", "localhost"),
+                port=int(os.getenv("REDIS_PORT", "6379")),
+                password=os.getenv("REDIS_PASSWORD", "practice"),
+            )
         ),
     }
 
+
+def load_tables(
+    handler: PostgresHandler | ClickHouseHandler,
+    table_names: tuple[str, ...],
+    dataframes: list[pd.DataFrame],
+) -> None:
+    """Load several DataFrames into tables that share the same handler."""
+    for table_name, dataframe in zip(table_names, dataframes, strict=True):
+        handler.load_dataframe(dataframe, table_name, mode="replace")
+
+
 def load_data_to_databases():
     databases_dfs = init_databases_dataframes()
-    configs = init_databases_connections()
+    connections = init_databases_connections()
 
-    with ExitStack() as stack:
-        handlers = {
-            "pg_main": stack.enter_context(PostgresHandler(configs["pg_main"])),
-            "pg_ml": stack.enter_context(PostgresHandler(configs["pg_ml"])),
-            "clickhouse": stack.enter_context(
-                ClickHouseHandler(configs["clickhouse"])
-            ),
-            "mongodb": stack.enter_context(MongoHandler(configs["mongodb"])),
-            "redis": stack.enter_context(RedisHandler(configs["redis"])),
-        }
+    with (
+        connections["pg_main"] as pg_main,
+        connections["pg_ml"] as pg_ml,
+        connections["clickhouse"] as clickhouse,
+        connections["mongodb"] as mongodb,
+        connections["redis"] as redis,
+    ):
+        load_tables(pg_main, TABLE_NAMES["pg_main"], databases_dfs["pg_main"])
+        load_tables(pg_ml, TABLE_NAMES["pg_ml"], databases_dfs["pg_ml"])
 
+        clickhouse.create_database(clickhouse.config.database)
         for table_name, dataframe in zip(
-            ("products", "shops", "users"), databases_dfs["pg_main"], strict=True
-        ):
-            handlers["pg_main"].load_dataframe(
-                dataframe, table_name, mode="replace"
-            )
-
-        for table_name, dataframe in zip(
-            (
-                "shops_daily_completed_orders_predict",
-                "shops_daily_all_orders_predict",
-                "daily_revenue_predict",
-            ),
-            databases_dfs["pg_ml"],
-            strict=True,
-        ):
-            handlers["pg_ml"].load_dataframe(
-                dataframe, table_name, mode="replace"
-            )
-
-        clickhouse = handlers["clickhouse"]
-        clickhouse.create_database(configs["clickhouse"].database)
-        for table_name, dataframe in zip(
-            (
-                "interactions",
-                "orders_history",
-                "products_price_history",
-                "delivery_price_history",
-            ),
-            databases_dfs["clickhouse"],
-            strict=True,
+            TABLE_NAMES["clickhouse"], databases_dfs["clickhouse"], strict=True
         ):
             clickhouse.create_table_from_dataframe(dataframe, table_name)
             clickhouse.load_dataframe(dataframe, table_name, mode="replace")
 
-        handlers["mongodb"].load_dataframe(
+        mongodb.load_dataframe(
             databases_dfs["mongodb"][0],
             "competitors_products_price_history",
             mode="replace",
             index_fields=[[('product_id', 1), ('datetime', 1)]],
         )
 
-        redis = handlers["redis"]
         redis.delete_keys_matching("users_cities:*")
         redis.load_dataframe_as_hashes(
             databases_dfs["redis"][0],
