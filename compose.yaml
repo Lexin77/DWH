@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data/postgres_main_data:/var/lib/postgresql
+      - postgres_main_data:/var/lib/postgresql
     networks:
       - data_stack
     healthcheck:
@@ -28,7 +28,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - ./data/postgres_ml_data:/var/lib/postgresql
+      - postgres_ml_data:/var/lib/postgresql
     networks:
       - data_stack
     healthcheck:
@@ -48,8 +48,8 @@ services:
       - "8123:8123"
       - "9000:9000"
     volumes:
-      - ./data/clickhouse_data:/var/lib/clickhouse
-      - ./data/clickhouse_logs:/var/log/clickhouse-server
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
     networks:
       - data_stack
     healthcheck:
@@ -72,7 +72,7 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - ./data/mongodb_data:/data/db
+      - mongodb_data:/data/db
     networks:
       - data_stack
     healthcheck:
@@ -100,7 +100,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ./data/redis_data:/data
+      - redis_data:/data
     networks:
       - data_stack
     healthcheck:
@@ -116,3 +116,11 @@ services:
 networks:
   data_stack:
     driver: bridge
+
+volumes:
+  postgres_main_data:
+  postgres_ml_data:
+  clickhouse_data:
+  clickhouse_logs:
+  mongodb_data:
+  redis_data:
