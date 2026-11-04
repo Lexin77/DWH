@@ -29,13 +29,14 @@
 
 ## Ручной запуск с чистого окружения
 
-Нужны Docker с Compose v2 и `uv`. Проект использует Python 3.12; `uv sync` при необходимости загрузит подходящую версию Python и зависимости. Способы установки `uv` описаны в [официальной инструкции](https://docs.astral.sh/uv/getting-started/installation/).
+Нужны Docker с Compose v2, Python 3.12 или новее и `pip`.
 
 Из корня репозитория выполни:
 
 ```sh
 test -f .env || cp .env.example .env
-uv sync
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 docker compose -f compose.yaml up -d --wait
 ```
 
@@ -48,7 +49,7 @@ set +a
 .venv/bin/python -m scripts.init_raw_data
 ```
 
-Вместо этих шагов можно выполнить `make init`, а затем `make run`. `make run` поднимет контейнеры и запустит загрузчик автоматически; `.env` нужен, чтобы загрузчик использовал уменьшенные объёмы из примера.
+Вместо создания окружения и установки зависимостей вручную можно выполнить `make init`, а затем `make run`. `make init` создаст `.venv` и установит зависимости из `requirements.txt`. `make run` поднимет контейнеры и запустит загрузчик автоматически; `.env` нужен, чтобы загрузчик использовал уменьшенные объёмы из примера.
 
 ## Объёмы данных и повторный запуск
 

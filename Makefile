@@ -3,4 +3,5 @@ run:
 	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/python -m scripts.init_raw_data
 
 init:
-	uv sync
+	python3 -m venv .venv
+	.venv/bin/python -m pip install -r requirements.txt
